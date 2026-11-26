@@ -8,10 +8,16 @@ import type {
   FileObject,
   FilePurpose,
   MessageStreamEvent,
+  OpenAIChatRequest,
+  OpenAIChatChunk,
+  OpenAIResponse,
+  OpenAIResponseRequest,
 } from './types.js'
 
-/** 构建期 API 地址，默认 https://api.deepseek.com；本地开发支持开发服务器代理 */
+/** 构建期 API 地址，默认 OpenAI；本地开发支持开发服务器代理 */
 export const API_ORIGIN = __API_ORIGIN__
+/** OpenAI 兼容接口前缀 */
+const OPENAI_BASE_URL = `${API_ORIGIN}/v1`
 /** Anthropic 兼容接口的前缀 */
 const ANTHROPIC_BASE_URL = `${API_ORIGIN}/anthropic/v1`
 /** 引用 Files API 上传的图片、调用 Anthropic 兼容 Files API 时必须携带 */
@@ -92,11 +98,63 @@ const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string>
 
 /** 用 GET /models 校验 API Key（不产生费用） */
 export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promise<void> => {
-  await request(`${API_ORIGIN}/models`, {
+  await request(`${OPENAI_BASE_URL}/models`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}` },
     signal,
   })
+}
+
+/** OpenAI Chat Completions 流式接口。支持 text 与 image_url 内容块。 */
+export async function* streamOpenAIChat(
+  apiKey: string,
+  body: OpenAIChatRequest,
+  signal: AbortSignal
+): AsyncGenerator<OpenAIChatChunk> {
+  const response = await request(`${OPENAI_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      'User-Agent': 'Index-Translate-Client/1.0',
+    },
+    body: JSON.stringify({ ...body, stream: true }),
+    signal,
+  })
+  const contentType = response.headers.get('Content-Type') ?? ''
+  if (!response.body || !contentType.includes('text/event-stream')) {
+    throw await readErrorResponse(response, 'protocol', '')
+  }
+  for await (const { data } of readServerSentEvents(response.body, signal)) {
+    if (data === '[DONE]') return
+    try {
+      const payload = JSON.parse(data) as OpenAIChatChunk
+      if (payload.error) throw new ApiError('stream', payload.error.message)
+      yield payload
+    } catch (error) {
+      if (error instanceof ApiError) throw error
+    }
+  }
+}
+
+/** Responses API 的非流式兼容请求，供调用方或集成测试使用。 */
+export const createOpenAIResponse = async (
+  apiKey: string,
+  body: OpenAIResponseRequest,
+  signal?: AbortSignal
+): Promise<OpenAIResponse> => {
+  const response = await request(`${OPENAI_BASE_URL}/responses`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'Index-Translate-Client/1.0',
+    },
+    body: JSON.stringify(body),
+    signal,
+  })
+  return (await response.json()) as OpenAIResponse
 }
 
 /**
