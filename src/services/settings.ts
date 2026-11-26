@@ -1,8 +1,25 @@
 import { create } from 'zustand'
 import type { TtsVoice } from './api/speech.js'
+import type { ChatModel } from './api/types.js'
 import { normalizeLocation, type UserLocation } from './location.js'
 
 export type Locale = 'zh-CN' | 'en-US'
+
+export type TranslationLanguage =
+  | 'auto'
+  | 'zh'
+  | 'en'
+  | 'ja'
+  | 'ko'
+  | 'fr'
+  | 'de'
+  | 'es'
+  | 'ru'
+  | 'it'
+  | 'pt'
+  | 'vi'
+  | 'th'
+  | 'ar'
 
 /** 主题偏好；默认跟随系统 */
 export type ThemePreference = 'light' | 'dark' | 'system'
@@ -16,6 +33,11 @@ type Settings = {
   ttsVoice: TtsVoice
   thinking: boolean
   search: boolean
+  model: ChatModel
+  sourceLanguage: TranslationLanguage
+  targetLanguage: TranslationLanguage
+  instruction: string
+  instructionPresets: InstructionPreset[]
   siderCollapsed: boolean
 }
 
@@ -27,6 +49,10 @@ const KEYS = {
   ttsVoice: 'chat-demo:tts-voice',
   thinking: 'chat-demo:thinking',
   search: 'chat-demo:search',
+  model: 'chat-demo:model',
+  sourceLanguage: 'chat-demo:source-language',
+  targetLanguage: 'chat-demo:target-language',
+  instruction: 'chat-demo:instruction',
   siderCollapsed: 'chat-demo:sider-collapsed',
 } as const
 
@@ -87,6 +113,68 @@ const initialThemePreference = (): ThemePreference => {
 /** 未保存过时使用服务端默认音色 stella（海星） */
 const initialTtsVoice = (): TtsVoice => (read(KEYS.ttsVoice) === 'tide' ? 'tide' : 'stella')
 
+const DEFAULT_MODEL: ChatModel = 'Index-Translate-35B-A3B'
+export type InstructionPreset = {
+  id: string
+  instruction: string
+  description: string
+}
+
+export const DEFAULT_INSTRUCTION = '完整翻译，保留章节与段落顺序，统一人名和术语。'
+export const DEFAULT_INSTRUCTION_PRESETS: InstructionPreset[] = [
+  { id: 'complete', instruction: DEFAULT_INSTRUCTION, description: '完整翻译并统一术语，保留原文结构。' },
+  { id: 'literal', instruction: '直译，保持原文语气和格式，不添加解释。', description: '尽量贴近原文，不添加额外说明。' },
+  { id: 'natural', instruction: '自然翻译，使译文符合目标语言表达习惯。', description: '优先保证译文自然、地道。' },
+  { id: 'markdown', instruction: '仅输出译文，保留 Markdown、章节和段落结构。', description: '保留 Markdown、章节和段落结构。' },
+  { id: 'json-en', instruction: '将以下文本翻译为英文，以合法的 JSON 格式输出，不要包含其他说明。', description: '翻译成英文，并只输出合法 JSON。' },
+  { id: 'polite-ja', instruction: '把下面的文本翻译成日语，使用敬体(です・ます调)，语气客气得体。', description: '翻译成客气得体的日语敬体。' },
+  { id: 'spell-out-en', instruction: '把下面的文本翻译成英语，并将译文中所有的阿拉伯数字全部拼写为英文单词。', description: '翻译成英语，并将数字拼写为英文单词。' },
+]
+const INSTRUCTION_PRESETS_KEY = 'chat-demo:instruction-presets'
+const initialInstructionPresets = (): InstructionPreset[] => {
+  try {
+    const saved = JSON.parse(read(INSTRUCTION_PRESETS_KEY) ?? 'null')
+    if (Array.isArray(saved)) {
+      return saved.filter((item): item is InstructionPreset =>
+        item && typeof item.id === 'string' && typeof item.instruction === 'string' && typeof item.description === 'string'
+      )
+    }
+  } catch {
+    // 使用内置预设
+  }
+  return DEFAULT_INSTRUCTION_PRESETS
+}
+const LANGUAGE_VALUES: TranslationLanguage[] = [
+  'auto',
+  'zh',
+  'en',
+  'ja',
+  'ko',
+  'fr',
+  'de',
+  'es',
+  'ru',
+  'it',
+  'pt',
+  'vi',
+  'th',
+  'ar',
+]
+const initialLanguage = (key: string, fallback: TranslationLanguage): TranslationLanguage => {
+  const saved = read(key) as TranslationLanguage | null
+  return saved && LANGUAGE_VALUES.includes(saved) ? saved : fallback
+}
+const initialInstruction = () => read(KEYS.instruction) ?? DEFAULT_INSTRUCTION
+const initialModel = (): ChatModel => {
+  const saved = read(KEYS.model)
+  return saved === 'Index-Translate-9B' ||
+    saved === 'Index-Homura-9B' ||
+    saved === 'Index-Nailong-9B' ||
+    saved === 'Index-Translate-35B-A3B'
+    ? saved
+    : DEFAULT_MODEL
+}
+
 export const useSettings = create<Settings>(() => ({
   apiKey: read(KEYS.apiKey),
   locale: initialLocale(),
@@ -95,6 +183,11 @@ export const useSettings = create<Settings>(() => ({
   ttsVoice: initialTtsVoice(),
   thinking: read(KEYS.thinking) === 'true',
   search: read(KEYS.search) === 'true',
+  model: initialModel(),
+  sourceLanguage: initialLanguage(KEYS.sourceLanguage, 'auto'),
+  targetLanguage: initialLanguage(KEYS.targetLanguage, 'zh'),
+  instruction: initialInstruction(),
+  instructionPresets: initialInstructionPresets(),
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
 }))
 
@@ -132,6 +225,30 @@ export const setThinking = (thinking: boolean) => {
 export const setSearch = (search: boolean) => {
   write(KEYS.search, String(search))
   useSettings.setState({ search })
+}
+
+export const setModel = (model: ChatModel) => {
+  write(KEYS.model, model)
+  useSettings.setState({ model })
+}
+
+export const setTranslationLanguages = (
+  sourceLanguage: TranslationLanguage,
+  targetLanguage: TranslationLanguage
+) => {
+  write(KEYS.sourceLanguage, sourceLanguage)
+  write(KEYS.targetLanguage, targetLanguage)
+  useSettings.setState({ sourceLanguage, targetLanguage })
+}
+
+export const setInstruction = (instruction: string) => {
+  write(KEYS.instruction, instruction)
+  useSettings.setState({ instruction })
+}
+
+export const setInstructionPresets = (instructionPresets: InstructionPreset[]) => {
+  write(INSTRUCTION_PRESETS_KEY, JSON.stringify(instructionPresets))
+  useSettings.setState({ instructionPresets })
 }
 
 export const setSiderCollapsed = (siderCollapsed: boolean) => {

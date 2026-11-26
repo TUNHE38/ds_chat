@@ -46,7 +46,11 @@ export const setDraftText = (sessionId: string | null, text: string) =>
   updateDraft(sessionId, (draft) => ({ ...draft, text }))
 
 const upload = (attachment: DraftAttachment, apiKey: string) => {
-  // 上传任务负责记录错误，输入框的附件卡片展示失败及重试入口。
+  // Index-Translate 图片翻译直接发送 data URL，不调用不兼容的 Files API。
+  if (attachment.isImage) {
+    return
+  }
+  // 其他附件仍使用 Files API。
   void uploadAttachment(
     apiKey,
     attachment.id,
@@ -101,12 +105,13 @@ export const prepareDraftMessage = (draft: Draft, tasks: Record<string, UploadTa
   const files: (FileAttachment & { serverId: string; blob: Blob })[] = []
   for (const attachment of draft.attachments) {
     const task = tasks[attachment.id]
-    if (task?.status !== 'done' || !task.serverId) {
+    if (!attachment.isImage && (task?.status !== 'done' || !task.serverId)) {
       return null
     }
     files.push({
       id: attachment.id,
-      serverId: task.serverId,
+      serverId:
+        attachment.isImage ? attachment.id : task?.status === 'done' ? task.serverId : '',
       name: attachment.file.name,
       size: attachment.file.size,
       isImage: attachment.isImage,

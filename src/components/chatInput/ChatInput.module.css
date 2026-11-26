@@ -255,6 +255,32 @@
   display: none;
 }
 
+.translationOptions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.languageSelect {
+  min-width: 86px;
+  max-width: 112px;
+  height: 34px;
+  font-size: 12px;
+}
+
+.languageArrow {
+  color: var(--dsw-alias-label-caption);
+  font-size: 14px;
+}
+
+.modelSelect {
+  min-width: 156px;
+  max-width: 190px;
+  height: 34px;
+  font-size: 13px;
+}
+
 .toggle {
   display: inline-flex;
   flex-shrink: 0;

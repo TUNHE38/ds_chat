@@ -2,11 +2,12 @@ import { ApiError, API_ORIGIN, request } from './client.js'
 
 /**
  * 语音接口：
- * - ASR：POST /v1/tools/asr，multipart 上传 WAV / Ogg Opus，一次返回全文
+ * - ASR：POST /v1/audio/transcriptions，使用 OpenAI Audio API multipart 格式
  * - TTS：POST /v1/tools/tts，返回音频字节流（产出首帧后即返回 200）
  * 鉴权都用 Authorization: Bearer。
  */
 const TOOLS_BASE_URL = `${API_ORIGIN}/v1/tools`
+const OPENAI_BASE_URL = `${API_ORIGIN}/v1`
 
 export type TtsVoice = 'stella' | 'tide'
 
@@ -17,11 +18,17 @@ export const TTS_SAMPLE_RATE = 24000
 export const transcribe = async (
   apiKey: string,
   audio: Blob,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  language?: string
 ): Promise<string> => {
   const form = new FormData()
   form.append('file', audio, 'recording.wav')
-  const response = await request(`${TOOLS_BASE_URL}/asr`, {
+  // Index-Translate follows the OpenAI audio transcription contract.
+  form.append('model', 'Index-Translate-35B-A3B')
+  if (language && language !== 'auto') {
+    form.append('language', language)
+  }
+  const response = await request(`${OPENAI_BASE_URL}/audio/transcriptions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,

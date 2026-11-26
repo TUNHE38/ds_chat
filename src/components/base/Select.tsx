@@ -1,11 +1,16 @@
 import clsx from 'clsx'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useAnchoredPosition, useDismiss } from './anchored.js'
 import { IconCheckOutline16, IconChevronDownOutline14 } from './icons.js'
 import styles from './Select.module.css'
 
-export type SelectOption<T extends string> = { value: T; label: string; lang?: string }
+export type SelectOption<T extends string> = {
+  value: T
+  label: string
+  description?: string
+  lang?: string
+}
 
 /**
  * 胶囊形选择器：触发器高 36px、圆角 18px、浅灰底，下拉菜单选中项右侧打勾；
@@ -19,6 +24,7 @@ export const Select = <T extends string>({
   ariaLabel,
   className,
   disabled = false,
+  icon,
 }: {
   value: T
   options: SelectOption<T>[]
@@ -27,6 +33,7 @@ export const Select = <T extends string>({
   ariaLabel?: string
   className?: string
   disabled?: boolean
+  icon?: ReactNode
 }) => {
   const [open, setOpen] = useState(false)
   const current = options.find((option) => option.value === value)
@@ -50,6 +57,7 @@ export const Select = <T extends string>({
         disabled={disabled}
         onClick={() => setOpen((value) => !value)}
       >
+        {icon ? <span className={styles.icon}>{icon}</span> : null}
         {current ? (
           <span lang={current.lang}>{current.label}</span>
         ) : (
@@ -80,7 +88,10 @@ export const Select = <T extends string>({
                     onChange(option.value)
                   }}
                 >
-                  <span>{option.label}</span>
+                  <span>
+                    <span>{option.label}</span>
+                    {option.description ? <small>{option.description}</small> : null}
+                  </span>
                   {option.value === value ? <IconCheckOutline16 /> : null}
                 </div>
               ))}

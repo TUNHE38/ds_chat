@@ -9,6 +9,8 @@ import type {
   FilePurpose,
   MessageStreamEvent,
   OpenAIChatRequest,
+  OpenAIChatMessage,
+  OpenAIContentPart,
   OpenAIChatChunk,
   OpenAIResponse,
   OpenAIResponseRequest,
@@ -119,7 +121,11 @@ export async function* streamOpenAIChat(
       Accept: 'text/event-stream',
       'User-Agent': 'Index-Translate-Client/1.0',
     },
-    body: JSON.stringify({ ...body, stream: true }),
+    body: JSON.stringify({
+      model: body.model,
+      messages: body.messages,
+      stream: true,
+    }),
     signal,
   })
   const contentType = response.headers.get('Content-Type') ?? ''
@@ -142,6 +148,101 @@ export async function* streamOpenAIChat(
       }
     }
   }
+}
+
+/** Responses API 的非流式兼容请求，供调用方或集成测试使用。 */
+const openAIContent = (
+  content: string | Array<{ type: string; text?: string; source?: { file_id?: string } }>,
+  imageDataUrls: Record<string, string> = {}
+): OpenAIChatMessage['content'] => {
+  if (typeof content === 'string') {
+    return content
+  }
+  const parts: OpenAIContentPart[] = []
+  for (const part of content) {
+    if (part.type === 'text' && part.text) {
+      parts.push({ type: 'text', text: part.text })
+    } else if (part.type === 'image' && part.source?.file_id) {
+      const url = imageDataUrls[part.source.file_id]
+      if (url) {
+        parts.push({ type: 'image_url', image_url: { url } })
+      }
+    }
+  }
+  return parts
+}
+
+/** 将应用内部的消息请求转换为 OpenAI Chat Completions 请求，并统一输出应用事件。 */
+export async function* streamOpenAIMessage(
+  apiKey: string,
+  body: CreateMessageRequest,
+  signal: AbortSignal
+): AsyncGenerator<MessageStreamEvent> {
+  // Index-Translate 接口要求将翻译指令和原文合并到唯一的 user 消息中，
+  // 不发送 system、target、source、instruction 或内部 reminder 字段。
+  const targetLanguageNames: Record<string, string> = {
+    auto: '目标语言',
+    zh: '中文',
+    en: '英语',
+    ja: '日语',
+    ko: '韩语',
+    fr: '法语',
+    de: '德语',
+    es: '西班牙语',
+    ru: '俄语',
+    it: '意大利语',
+    pt: '葡萄牙语',
+    vi: '越南语',
+    th: '泰语',
+    ar: '阿拉伯语',
+  }
+  const targetLanguage = targetLanguageNames[body.target ?? ''] ?? body.target ?? '目标语言'
+  const instruction = body.instruction?.trim() || '直接输出翻译结果，不要进行任何解释'
+  const sourceMessage = [...body.messages].reverse().find((message) => message.role === 'user')
+  const sourceContent = sourceMessage
+    ? typeof sourceMessage.content === 'string'
+      ? sourceMessage.content
+      : openAIContent(sourceMessage.content, body.imageDataUrls)
+    : ''
+  const messages: OpenAIChatRequest['messages'] = [
+    {
+      role: 'user',
+      content:
+        typeof sourceContent === 'string'
+          ? `请将以下文本翻译为${targetLanguage}。${instruction}\n\n${sourceContent}`
+          : [
+              { type: 'text', text: `请将以下文本翻译为${targetLanguage}。${instruction}\n\n` },
+              ...sourceContent,
+            ],
+    },
+  ]
+  yield {
+    type: 'message_start',
+    message: { id: `openai-${Date.now()}`, model: body.model },
+  }
+  yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+  for await (const chunk of streamOpenAIChat(
+    apiKey,
+    {
+      model: body.model,
+      messages,
+      max_tokens: body.imageDataUrls && Object.keys(body.imageDataUrls).length > 0 ? 1024 : undefined,
+      temperature: body.imageDataUrls && Object.keys(body.imageDataUrls).length > 0 ? 0 : undefined,
+    },
+    signal
+  )) {
+    const delta = chunk.choices?.[0]?.delta
+    const text = delta?.content ?? ''
+    if (text) {
+      yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }
+    }
+  }
+  yield { type: 'content_block_stop', index: 0 }
+  yield {
+    type: 'message_delta',
+    delta: { stop_reason: 'end_turn', stop_sequence: null },
+  }
+  yield { type: 'message_stop' }
 }
 
 /** Responses API 的非流式兼容请求，供调用方或集成测试使用。 */
@@ -218,7 +319,10 @@ export async function* streamMessage(
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ ...body, stream: true }),
+    body: JSON.stringify((({ imageDataUrls: _imageDataUrls, ...wireBody }) => ({
+      ...wireBody,
+      stream: true,
+    }))(body)),
     signal,
   })
   const contentType = response.headers.get('Content-Type') ?? ''

@@ -41,6 +41,11 @@
   }
 }
 
+.icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
 .open {
   color: var(--dsw-alias-label-tertiary);
 }
@@ -93,6 +98,21 @@
   cursor: pointer;
   user-select: none;
   transition: background-color var(--ds-transition-duration) var(--ds-ease-in-out);
+
+  > span:first-child {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  small {
+    overflow: hidden;
+    color: var(--dsw-alias-label-secondary);
+    font-size: 12px;
+    line-height: 16px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   &:hover {
     background: var(--dsw-alias-interactive-bg-hover);

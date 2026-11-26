@@ -147,6 +147,8 @@ export type TextBlockParam = { type: 'text'; text: string }
 export type FileBlockParam = {
   type: 'image' | 'document'
   source: { type: 'file'; file_id: string }
+  /** 本地图片的 data URL；Index-Translate 图片翻译优先使用 image_url。 */
+  data_url?: string
 }
 
 /** 接口接受的调用块；历史只回传 kind 为 read_link 的调用 */
@@ -201,6 +203,11 @@ export type OpenAIChatRequest = {
   messages: OpenAIChatMessage[]
   stream?: boolean
   max_tokens?: number
+  target?: string
+  source?: string
+  instruction?: string
+  imageDataUrls?: Record<string, string>
+  temperature?: number
 }
 
 export type OpenAIChatChunk = {
@@ -222,6 +229,10 @@ export type CreateMessageRequest = {
   thinking: { type: 'enabled' | 'disabled' }
   tools: (DeepseekWebSearchTool | DeepseekReadUrlTool)[]
   safety_check: { level: 'high' }
+  imageDataUrls?: Record<string, string>
+  target?: string
+  source?: string
+  instruction?: string
   title?: { enabled: boolean }
 }
 

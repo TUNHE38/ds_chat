@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getAbortReason, throwIfAborted } from '../../utils/abort.js'
 import { createId } from '../../utils/id.js'
-import { ApiError, streamMessage } from '../api/client.js'
+import { ApiError, streamOpenAIMessage } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import {
@@ -39,8 +39,8 @@ import {
   type UserMessage,
 } from './types.js'
 
-/** deepseek-flash 同时支持深度思考与图片输入 */
-const MODEL: ChatModel = 'deepseek-flash'
+/** 默认 Index-Translate 模型；实际新请求读取设置中的当前模型。 */
+const MODEL: ChatModel = 'Index-Translate-35B-A3B'
 /** 所有生成请求统一携带的助手身份说明 */
 const SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
@@ -51,6 +51,13 @@ const SAFETY_CHECK = { level: 'high' } as const
 const FILE_RETRY_LIMIT = 2
 /** 退避基数，第 n 次重试等待 2^n 倍；连续失败达到上限就放弃，把原始报错展示出来 */
 const FILE_RETRY_BASE_DELAY = 1000
+
+/** 使用浏览器本地时区生成新会话默认标题。 */
+const formatSessionTitle = (timestamp: number): string => {
+  const date = new Date(timestamp)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}-${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 
 /** 阅读链接始终开启，智能搜索开关控制是否另行声明搜索工具（含边想边搜）。 */
 const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
@@ -267,7 +274,7 @@ const createReply = (): AssistantMessage => {
     id: createId(),
     role: 'assistant',
     createdAt: Date.now(),
-    model: MODEL,
+    model: useSettings.getState().model ?? MODEL,
     thinking,
     search,
     prefix: true,
@@ -572,7 +579,7 @@ export const sendMessage = (targetSessionId: string | null) => {
   if (sessionId === null) {
     const session: Session = {
       id: createId(),
-      title: '',
+      title: formatSessionTitle(now),
       createdAt: now,
       updatedAt: now,
       messages: [],
@@ -792,6 +799,9 @@ const saveServerIds = (sessionId: string, serverIds: ReadonlyMap<string, string 
  * 本地也没有原件（导入的文档附件只有元数据）时返回 null，该附件只展示、不进入请求。
  */
 const ensureServerId = async (apiKey: string, file: FileAttachment): Promise<string | null> => {
+  if (file.isImage) {
+    return file.serverId ?? file.id
+  }
   if (file.serverId) {
     return file.serverId
   }
@@ -828,6 +838,31 @@ const refreshRequest = (sessionId: string, request: Request): Request => {
  * - 历史轮次（仅进入上下文的）中没有 serverId 的附件，多为导入的图片：从最新的消息往前逐张补传，
  *   失败静默跳过，该附件不进入本次请求，下次发送时再试。
  */
+const blobToDataUrl = async (blob: Blob): Promise<string> => {
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let binary = ''
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return `data:${blob.type || 'application/octet-stream'};base64,${btoa(binary)}`
+}
+
+const imageDataUrls = async (messages: Message[]): Promise<Record<string, string>> => {
+  const result: Record<string, string> = {}
+  const files = messages.flatMap((message) => (message.role === 'user' ? message.files : []))
+  await Promise.all(
+    files
+      .filter((file) => file.isImage)
+      .map(async (file) => {
+        const blob = await db.loadFile(file.id)
+        if (blob) {
+          result[file.serverId ?? file.id] = await blobToDataUrl(blob)
+        }
+      })
+  )
+  return result
+}
+
 const prepareFiles = async (sessionId: string, request: Request, signal: AbortSignal) => {
   const epoch = historyEpoch
   // 服务端判定 file_id 失效时会清掉会话里的 serverId，先用最新消息替换请求快照，
@@ -897,6 +932,10 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
     history: request.history.map(resolve),
     question: resolve(request.question),
     prefix: request.prefix,
+    imageDataUrls: await imageDataUrls([
+      ...request.history,
+      request.question,
+    ]),
   }
 }
 
@@ -1021,11 +1060,15 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           initial.thinking ?? false,
           latestReminder
         )
-        const events = streamMessage(
+        const events = streamOpenAIMessage(
           useSettings.getState().apiKey ?? '',
           {
-            model: initial.model ?? MODEL,
+            model: initial.model ?? useSettings.getState().model ?? MODEL,
             system: SYSTEM_PROMPT,
+            target: useSettings.getState().targetLanguage,
+            source: useSettings.getState().sourceLanguage,
+            instruction: useSettings.getState().instruction,
+            imageDataUrls: prepared.imageDataUrls,
             messages,
             thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
             safety_check: SAFETY_CHECK,

@@ -1,13 +1,21 @@
 import clsx from 'clsx'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
-  IconGlobeLanguageOutline14,
   IconPaperclipOutline16,
+  IconGlobeLanguageOutline14,
+  IconSettingsOutline16,
   IconSendOutline16,
   IconStopFill16,
-  IconThinkOutline14,
 } from '../base/icons.js'
-import { setSearch, setThinking, useSettings } from '../../services/settings.js'
+import {
+  setInstruction,
+  setInstructionPresets,
+  setModel,
+  setTranslationLanguages,
+  useSettings,
+  type TranslationLanguage,
+} from '../../services/settings.js'
+import type { ChatModel } from '../../services/api/types.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
 import {
@@ -22,7 +30,7 @@ import {
 } from '../../services/chat/drafts.js'
 import { stopReadAloud } from '../../services/speech/readAloud.js'
 import { IconButton } from '../base/IconButton.js'
-import { Tooltip } from '../base/Tooltip.js'
+import { Select } from '../base/Select.js'
 import { ensureApiKey } from '../settings/settingsDialogState.js'
 import { DragMask, useFileDrop } from './DragMask.js'
 import { showToast } from '../base/toastState.js'
@@ -49,30 +57,18 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const streaming = useChatStore(
     (state) => sessionId !== null && Object.hasOwn(state.streaming, sessionId)
   )
-  const thinking = useSettings((state) => state.thinking)
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
-  const search = useSettings((state) => state.search)
+  const model = useSettings((state) => state.model)
+  const sourceLanguage = useSettings((state) => state.sourceLanguage)
+  const targetLanguage = useSettings((state) => state.targetLanguage)
+  const instruction = useSettings((state) => state.instruction)
+  const instructionPresets = useSettings((state) => state.instructionPresets)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [editingPreset, setEditingPreset] = useState<string | null>(null)
+  const [presetDraft, setPresetDraft] = useState({ instruction: '', description: '' })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const togglesRef = useRef<HTMLDivElement>(null)
-
-  useLayoutEffect(() => {
-    const toggles = togglesRef.current
-    if (!toggles) {
-      return
-    }
-
-    const updateLabels = () => {
-      toggles.classList.remove(styles.collapsedToggles)
-      toggles.classList.toggle(styles.collapsedToggles, toggles.scrollWidth > toggles.clientWidth)
-    }
-
-    updateLabels()
-    const observer = new ResizeObserver(updateLabels)
-    observer.observe(toggles)
-    return () => observer.disconnect()
-  }, [t])
 
   const acceptFiles = (files: File[]) => {
     if (files.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
@@ -201,31 +197,114 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       </div>
       <div className={styles.functionRow}>
         {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
-        <div ref={togglesRef} className={styles.toggles}>
-          <Tooltip content={t('deactivatedThinkTooltip')}>
-            <button
-              type="button"
-              className={clsx(styles.toggle, thinking && styles.selected)}
-              aria-label={t('thinkingSwitch')}
-              aria-pressed={thinking}
-              onClick={() => setThinking(!thinking)}
-            >
-              <IconThinkOutline14 />
-              <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
-            </button>
-          </Tooltip>
-          <Tooltip content={t('deactivatedSearchTooltip')}>
-            <button
-              type="button"
-              className={clsx(styles.toggle, search && styles.selected)}
-              aria-label={t('search')}
-              aria-pressed={search}
-              onClick={() => setSearch(!search)}
-            >
-              <IconGlobeLanguageOutline14 />
-              <span className={styles.toggleLabel}>{t('search')}</span>
-            </button>
-          </Tooltip>
+        <div className={styles.toggles}>
+          <div className={styles.languageGroup}>
+            <IconGlobeLanguageOutline14 />
+            <Select
+              value={sourceLanguage}
+              ariaLabel={t('sourceLanguage')}
+              className={styles.languageSelect}
+              options={[
+                { value: 'auto', label: t('languageAuto') },
+                { value: 'zh', label: t('languageChinese') },
+                { value: 'en', label: t('languageEnglish') },
+                { value: 'ja', label: t('languageJapanese') },
+                { value: 'ko', label: t('languageKorean') },
+                { value: 'fr', label: 'Français' },
+                { value: 'de', label: 'Deutsch' },
+                { value: 'es', label: 'Español' },
+                { value: 'ru', label: 'Русский' },
+              ]}
+              onChange={(value) => setTranslationLanguages(value as TranslationLanguage, targetLanguage)}
+            />
+            <span className={styles.languageArrow}>→</span>
+            <Select
+              value={targetLanguage}
+              ariaLabel={t('targetLanguage')}
+              className={styles.languageSelect}
+              options={[
+                { value: 'zh', label: t('languageChinese') },
+                { value: 'en', label: t('languageEnglish') },
+                { value: 'ja', label: t('languageJapanese') },
+                { value: 'ko', label: t('languageKorean') },
+                { value: 'fr', label: 'Français' },
+                { value: 'de', label: 'Deutsch' },
+                { value: 'es', label: 'Español' },
+                { value: 'ru', label: 'Русский' },
+              ]}
+              onChange={(value) => setTranslationLanguages(sourceLanguage, value as TranslationLanguage)}
+            />
+          </div>
+          <Select
+            value={model}
+            ariaLabel={t('modelSwitch')}
+            className={styles.modelIconSelect}
+            icon={<IconSettingsOutline16 />}
+            disabled={streaming || importingHistory}
+            options={[
+              { value: 'Index-Translate-35B-A3B', label: 'Index-Translate-35B-A3B' },
+              { value: 'Index-Translate-9B', label: 'Index-Translate-9B' },
+              { value: 'Index-Homura-9B', label: 'Index-Homura-9B' },
+              { value: 'Index-Nailong-9B', label: 'Index-Nailong-9B' },
+            ]}
+            onChange={(value) => setModel(value as ChatModel)}
+          />
+          <IconButton
+            size="m"
+            icon={<IconSettingsOutline16 />}
+            tooltip={t('translationInstruction')}
+            disabled={streaming || importingHistory}
+            onClick={() => setAdvancedOpen((open) => !open)}
+            aria-expanded={advancedOpen}
+          />
+          {advancedOpen ? (
+            <div className={styles.advancedOptions}>
+              <Select
+                value={instruction}
+                ariaLabel={t('translationInstruction')}
+                className={styles.instructionSelect}
+                disabled={streaming || importingHistory}
+                options={instructionPresets.map((preset) => ({
+                  value: preset.instruction,
+                  label: preset.instruction,
+                  description: preset.description,
+                }))}
+                onChange={setInstruction}
+              />
+              <button type="button" onClick={() => {
+                const preset = instructionPresets.find((item) => item.instruction === instruction)
+                if (preset) {
+                  setEditingPreset(preset.id)
+                  setPresetDraft({ instruction: preset.instruction, description: preset.description })
+                }
+              }}>编辑预设</button>
+              {editingPreset ? (
+                <div className={styles.presetEditor}>
+                  <input value={presetDraft.instruction} onChange={(event) => setPresetDraft((draft) => ({ ...draft, instruction: event.target.value }))} />
+                  <input value={presetDraft.description} placeholder="简短介绍" onChange={(event) => setPresetDraft((draft) => ({ ...draft, description: event.target.value }))} />
+                  <button type="button" onClick={() => {
+                    const updated = instructionPresets.map((item) => item.id === editingPreset ? { ...item, ...presetDraft } : item)
+                    setInstructionPresets(updated)
+                    setInstruction(presetDraft.instruction)
+                    setEditingPreset(null)
+                  }}>保存</button>
+                </div>
+              ) : null}
+              <Select
+                value={model}
+                ariaLabel={t('modelSwitch')}
+                className={styles.modelSelect}
+                disabled={streaming || importingHistory}
+                options={[
+                  { value: 'Index-Translate-35B-A3B', label: 'Index-Translate-35B-A3B' },
+                  { value: 'Index-Translate-9B', label: 'Index-Translate-9B' },
+                  { value: 'Index-Homura-9B', label: 'Index-Homura-9B' },
+                  { value: 'Index-Nailong-9B', label: 'Index-Nailong-9B' },
+                ]}
+                onChange={(value) => setModel(value as ChatModel)}
+              />
+            </div>
+          ) : null}
         </div>
         <div className={styles.right}>
           <VoiceButton
