@@ -14,9 +14,9 @@ import type {
   OpenAIResponseRequest,
 } from './types.js'
 
-/** 构建期 API 地址，默认 OpenAI；本地开发支持开发服务器代理 */
+/** 构建期 API 地址，默认 Index-Translate；本地开发支持开发服务器代理 */
 export const API_ORIGIN = __API_ORIGIN__
-/** OpenAI 兼容接口前缀 */
+/** Index-Translate OpenAI 兼容接口前缀 */
 const OPENAI_BASE_URL = `${API_ORIGIN}/v1`
 /** Anthropic 兼容接口的前缀 */
 const ANTHROPIC_BASE_URL = `${API_ORIGIN}/anthropic/v1`
@@ -105,7 +105,7 @@ export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promis
   })
 }
 
-/** OpenAI Chat Completions 流式接口。支持 text 与 image_url 内容块。 */
+/** Index-Translate 的 OpenAI Chat Completions 流式接口。支持 text 与 image_url 内容块。 */
 export async function* streamOpenAIChat(
   apiKey: string,
   body: OpenAIChatRequest,
@@ -127,13 +127,19 @@ export async function* streamOpenAIChat(
     throw await readErrorResponse(response, 'protocol', '')
   }
   for await (const { data } of readServerSentEvents(response.body, signal)) {
-    if (data === '[DONE]') return
+    if (data === '[DONE]') {
+      return
+    }
     try {
       const payload = JSON.parse(data) as OpenAIChatChunk
-      if (payload.error) throw new ApiError('stream', payload.error.message)
+      if (payload.error) {
+        throw new ApiError('stream', payload.error.message)
+      }
       yield payload
     } catch (error) {
-      if (error instanceof ApiError) throw error
+      if (error instanceof ApiError) {
+        throw error
+      }
     }
   }
 }
