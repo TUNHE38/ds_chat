@@ -1,5 +1,53 @@
 import { useId } from 'react'
 
+export const IconLayersOutline16 = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 20 20"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="m10 2.7 7.3 4.1L10 11 2.7 6.8 10 2.7Z" />
+    <path d="m2.7 10.1 7.3 4.2 7.3-4.2M2.7 13.4l7.3 4.2 7.3-4.2" />
+  </svg>
+)
+
+export const IconPresetOutline16 = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 20 20"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4.5 3.5h10a1 1 0 0 1 1 1V17L10 13.5 4.5 17V3.5Z" />
+    <path d="M7.5 7h5M7.5 9.8H11" strokeLinecap="round" />
+  </svg>
+)
+
+export const IconSwapOutline16 = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 20 20"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M3 6.5h14l-3.5-3.4M17 13.5H3l3.5 3.4" />
+  </svg>
+)
+
 export const IconCheckOutline16 = () => (
   <svg width={16} height={16} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
     <path

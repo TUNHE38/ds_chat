@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useRef, useState, type ReactNode } from 'react'
+import { useId, useRef, useState, type ReactNode } from 'react'
 import {
   IconDarkOutline16,
   IconDataOutline16,
@@ -7,6 +7,7 @@ import {
   IconFollowsystemOutline16,
   IconLightOutline16,
   IconLoadingOutline16,
+  IconPresetOutline16,
   IconSettingsOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
@@ -33,14 +34,16 @@ import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
-import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
-import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
+import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
+import { PresetSettings } from './PresetSettings.js'
+import {
+  closeSettings,
+  openSettings,
+  useSettingsDialog,
+  type SettingsSection,
+} from './settingsDialogState.js'
 import styles from './Settings.module.css'
 
-/**
- * 设置弹窗：分「通用设置」（主题、语言、朗读音色、位置）与「数据管理」（API Key、导入、导出、删除）。
- * 桌面端为居中弹窗、左侧导航；移动端为底部弹层、导航横排在内容上方
- */
 export const SettingsDialog = () => {
   const open = useSettingsDialog((state) => state.open)
   const historyImport = useHistoryImport()
@@ -53,6 +56,7 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode
     label: 'settingDialogAsideGeneralOptionLabel',
     icon: <IconSettingsOutline16 />,
   },
+  { value: 'presets', label: 'translationPresets', icon: <IconPresetOutline16 /> },
   { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
 ]
 
@@ -63,8 +67,8 @@ const SettingsContent = ({
 }) => {
   const t = useTranslate()
   const isMobile = useIsMobile()
-  // 打开时按调用方指定的分组选中，之后在弹窗内切换
-  const [section, setSection] = useState(() => useSettingsDialog.getState().section)
+  const section = useSettingsDialog((state) => state.section)
+  const tabId = useId()
   // 切换分组不丢失正在输入的 API Key
   const apiKeyEditor = useApiKeyEditor()
   const historyDelete = useHistoryDelete()
@@ -73,7 +77,12 @@ const SettingsContent = ({
   return (
     <>
       <Modal
-        title={t('settings')}
+        title={
+          <span className={styles.dialogTitle}>
+            <IconSettingsOutline16 />
+            {t('settings')}
+          </span>
+        }
         closable
         className={styles.dialog}
         mainClassName={styles.dialogMain}
@@ -84,32 +93,68 @@ const SettingsContent = ({
           }
         }}
       >
-        <div role="tablist" className={styles.navigation}>
-          {sections.map((item) => (
+        <div
+          role="tablist"
+          aria-label={t('settings')}
+          aria-orientation={isMobile ? 'horizontal' : 'vertical'}
+          className={styles.navigation}
+        >
+          {sections.map((item, index) => (
             <button
               key={item.value}
               type="button"
               role="tab"
+              id={`${tabId}-${item.value}`}
+              aria-controls={`${tabId}-panel`}
+              tabIndex={section === item.value ? 0 : -1}
               aria-selected={section === item.value}
               className={clsx(styles.navItem, section === item.value && styles.navItemActive)}
-              onClick={() => setSection(item.value)}
+              onClick={() => openSettings(item.value)}
+              onKeyDown={(event) => {
+                const forward = isMobile ? 'ArrowRight' : 'ArrowDown'
+                const back = isMobile ? 'ArrowLeft' : 'ArrowUp'
+                let next: number
+                if (event.key === forward) {
+                  next = (index + 1) % sections.length
+                } else if (event.key === back) {
+                  next = (index + sections.length - 1) % sections.length
+                } else if (event.key === 'Home' || event.key === 'End') {
+                  next = event.key === 'Home' ? 0 : sections.length - 1
+                } else {
+                  return
+                }
+                event.preventDefault()
+                openSettings(sections[next].value)
+                document.getElementById(`${tabId}-${sections[next].value}`)?.focus()
+              }}
             >
               {item.icon}
               {t(item.label)}
             </button>
           ))}
         </div>
-        <div role="tabpanel" className={styles.content}>
+        <div
+          key={section}
+          id={`${tabId}-panel`}
+          role="tabpanel"
+          aria-labelledby={`${tabId}-${section}`}
+          className={styles.content}
+        >
           {section === 'general' ? (
             <>
+              <h2 className={styles.sectionHeading}>{t('appearanceSettings')}</h2>
               <ThemeSetting />
               <LocaleSetting />
               <TtsVoiceSetting />
               <LocationSetting />
             </>
+          ) : section === 'presets' ? (
+            <PresetSettings />
           ) : (
             <>
+              <h2 className={styles.sectionHeading}>{t('apiConnection')}</h2>
               <ApiKeyField editor={apiKeyEditor} />
+              <h2 className={styles.sectionHeading}>{t('chatHistory')}</h2>
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
               <SettingCell
@@ -127,7 +172,6 @@ const SettingsContent = ({
                   </Button>
                 }
               />
-              {isMobile ? <ApiKeyConfirm editor={apiKeyEditor} /> : null}
             </>
           )}
         </div>
@@ -390,8 +434,14 @@ const ThemeSetting = () => {
             )}
             onClick={() => setThemePreference(option.value)}
           >
-            {option.icon}
-            {t(option.label)}
+            <span className={styles.themePreview} data-theme={option.value} aria-hidden="true">
+              <i />
+              <i />
+            </span>
+            <span className={styles.themeName}>
+              {option.icon}
+              {t(option.label)}
+            </span>
           </button>
         ))}
       </div>

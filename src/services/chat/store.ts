@@ -832,37 +832,41 @@ const refreshRequest = (sessionId: string, request: Request): Request => {
   }
 }
 
-/**
- * 发送前补齐附件的 serverId。
- * - 本轮提问的附件并行补齐，任一失败则整体失败，已成功的照常写回，重试时复用成功结果；
- * - 历史轮次（仅进入上下文的）中没有 serverId 的附件，多为导入的图片：从最新的消息往前逐张补传，
- *   失败静默跳过，该附件不进入本次请求，下次发送时再试。
- */
-const blobToDataUrl = async (blob: Blob): Promise<string> => {
+const blobToDataUrl = async (blob: Blob, mimeType: string): Promise<string> => {
   const bytes = new Uint8Array(await blob.arrayBuffer())
   let binary = ''
   for (const byte of bytes) {
     binary += String.fromCharCode(byte)
   }
-  return `data:${blob.type || 'application/octet-stream'};base64,${btoa(binary)}`
+  return `data:${blob.type || mimeType || 'application/octet-stream'};base64,${btoa(binary)}`
 }
 
-const imageDataUrls = async (messages: Message[]): Promise<Record<string, string>> => {
+const imageDataUrls = async (
+  sessionId: string,
+  files: FileAttachment[]
+): Promise<Record<string, string>> => {
   const result: Record<string, string> = {}
-  const files = messages.flatMap((message) => (message.role === 'user' ? message.files : []))
+  const pending = pendingFiles.get(sessionId)
   await Promise.all(
     files
       .filter((file) => file.isImage)
       .map(async (file) => {
-        const blob = await db.loadFile(file.id)
+        const blob =
+          pending?.find((item) => item.id === file.id)?.blob ?? (await db.loadFile(file.id))
         if (blob) {
-          result[file.serverId ?? file.id] = await blobToDataUrl(blob)
+          result[file.serverId ?? file.id] = await blobToDataUrl(blob, file.mimeType)
         }
       })
   )
   return result
 }
 
+/**
+ * 发送前补齐附件的 serverId。
+ * - 本轮提问的附件并行补齐，任一失败则整体失败，已成功的照常写回，重试时复用成功结果；
+ * - 历史轮次（仅进入上下文的）中没有 serverId 的附件，多为导入的图片：从最新的消息往前逐张补传，
+ *   失败静默跳过，该附件不进入本次请求，下次发送时再试。
+ */
 const prepareFiles = async (sessionId: string, request: Request, signal: AbortSignal) => {
   const epoch = historyEpoch
   // 服务端判定 file_id 失效时会清掉会话里的 serverId，先用最新消息替换请求快照，
@@ -928,14 +932,12 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
   const session = getSession(sessionId)
   const resolve = <T extends Message>(message: T): T =>
     (session?.messages.find((m) => m.id === message.id) as T | undefined) ?? message
+  const question = resolve(request.question)
   return {
     history: request.history.map(resolve),
-    question: resolve(request.question),
+    question,
     prefix: request.prefix,
-    imageDataUrls: await imageDataUrls([
-      ...request.history,
-      request.question,
-    ]),
+    imageDataUrls: await imageDataUrls(sessionId, question.files),
   }
 }
 
@@ -1025,6 +1027,8 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
  */
 const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
   const controller = new AbortController()
+  // 点击发送时确定翻译方向，图片编码和请求重试都沿用本轮选择。
+  const { sourceLanguage, targetLanguage, instruction } = useSettings.getState()
   if (!getSession(sessionId)?.title) {
     titleRequests.add(controller)
   }
@@ -1065,9 +1069,9 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           {
             model: initial.model ?? useSettings.getState().model ?? MODEL,
             system: SYSTEM_PROMPT,
-            target: useSettings.getState().targetLanguage,
-            source: useSettings.getState().sourceLanguage,
-            instruction: useSettings.getState().instruction,
+            target: targetLanguage,
+            source: sourceLanguage,
+            instruction,
             imageDataUrls: prepared.imageDataUrls,
             messages,
             thinking: { type: initial.thinking ? 'enabled' : 'disabled' },

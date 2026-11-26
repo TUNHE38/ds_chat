@@ -4,7 +4,7 @@ import { ChatInput } from '../chatInput/ChatInput.js'
 import { MobileHeader } from './MobileHeader.js'
 import styles from './Welcome.module.css'
 
-/** 新对话：问候语 + 输入框。桌面端居中；移动端输入框吸底 */
+/** 新翻译和已有会话共用同一套语言、模型和预设控件。 */
 export const Welcome = () => {
   const t = useTranslate()
   const isMobile = useIsMobile()
@@ -12,7 +12,7 @@ export const Welcome = () => {
     <div className={styles.container}>
       {isMobile ? <MobileHeader /> : null}
       <div className={styles.welcome}>
-        <div className={styles.greeting}>{t('welcomeMessageChat250808')}</div>
+        <h1 className={styles.greeting}>{t('translationWorkspace')}</h1>
         <ChatInput sessionId={null} />
         {isMobile ? <div className={styles.caveat}>{t('contentCaveat')}</div> : null}
       </div>

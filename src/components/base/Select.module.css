@@ -1,85 +1,94 @@
 .trigger {
-  position: relative;
   display: inline-flex;
   align-items: center;
-  flex-shrink: 0;
+  gap: 10px;
   box-sizing: border-box;
-  min-width: 90px;
+  min-width: 0;
   max-width: 100%;
-  height: 36px;
-  padding: 0 42px 0 14px;
-  border: none;
-  border-radius: 18px;
-  background: var(--dsw-specific-selector);
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 9px;
+  background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
   font: inherit;
   font-size: 14px;
-  line-height: 22px;
-  white-space: nowrap;
+  text-align: start;
   cursor: pointer;
-  outline: none;
   transition:
-    background-color var(--ds-transition-duration) var(--ds-ease-in-out),
-    color var(--ds-transition-duration) var(--ds-ease-in-out);
+    background-color 0.15s,
+    border-color 0.15s;
 
-  &:hover:not(:disabled) {
-    background: var(--dsw-alias-interactive-bg-hover-accent);
+  &:hover:not(:disabled),
+  &[aria-expanded='true'] {
+    background-color: var(--dsw-specific-sidebar-nav-item-hover);
   }
 
   &:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--dsw-alias-brand-primary);
+    outline: 2px solid var(--dsw-alias-brand-primary);
+    outline-offset: -2px;
   }
 
   &:disabled {
-    color: var(--dsw-alias-label-caption);
+    opacity: 0.5;
     cursor: default;
   }
-
-  > span:first-child {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
 }
 
-.icon {
+.icon,
+.arrow {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.text {
   display: flex;
-  flex-shrink: 0;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
 }
 
-.open {
-  color: var(--dsw-alias-label-tertiary);
+.caption {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 18px;
+}
+
+.value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .placeholder {
-  color: var(--dsw-alias-label-tertiary);
+  color: var(--dsw-alias-label-secondary);
 }
 
 .arrow {
-  position: absolute;
-  top: 50%;
-  right: 14px;
-  display: flex;
-  color: var(--dsw-alias-label-secondary);
-  transform: translateY(-50%);
-  pointer-events: none;
+  margin-left: auto;
+  transition: transform 0.15s;
+}
+
+.trigger[aria-expanded='true'] .arrow {
+  transform: rotate(180deg);
 }
 
 .menu {
   position: fixed;
   z-index: 1050;
   box-sizing: border-box;
-  min-width: 124px;
-  max-width: 280px;
+  width: max-content;
+  min-width: 154px;
+  max-width: min(320px, calc(100vw - 16px));
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 4px;
-  border-radius: 12px;
-  border: 1px solid var(--dsw-alias-border-inverted);
+  padding: 5px;
+  border-radius: 13px;
+  border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-specific-menu);
-  box-shadow:
-    0 0 1px 0 rgba(0, 0, 0, 0.2),
-    0 0 4px 0 rgba(0, 0, 0, 0.02),
-    0 12px 32px 0 rgba(0, 0, 0, 0.08);
+  box-shadow: var(--dsw-shadow-lv3);
 }
 
 .option {
@@ -87,34 +96,55 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 14px;
   min-height: 40px;
-  padding: 4px 10px;
-  border-radius: 10px;
+  padding: 8px 11px;
+  border-radius: 8px;
   font-size: 14px;
-  line-height: 22px;
+  line-height: 20px;
   color: var(--dsw-alias-label-primary);
-  white-space: normal;
   cursor: pointer;
   user-select: none;
-  transition: background-color var(--ds-transition-duration) var(--ds-ease-in-out);
+  overflow-wrap: anywhere;
 
-  > span:first-child {
-    display: flex;
-    flex-direction: column;
+  > span {
     min-width: 0;
   }
 
   small {
-    overflow: hidden;
+    display: block;
+    margin-top: 2px;
     color: var(--dsw-alias-label-secondary);
     font-size: 12px;
-    line-height: 16px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 17px;
   }
 
-  &:hover {
+  > svg {
+    flex: none;
+    color: var(--dsw-alias-brand-text);
+  }
+
+  &:hover,
+  &.highlight {
     background: var(--dsw-alias-interactive-bg-hover);
+  }
+
+  &[aria-selected='true'] {
+    color: var(--dsw-alias-brand-text);
+    background: var(--dsw-alias-button-ghost-active-fill);
+  }
+}
+
+@media (max-width: 767px) {
+  .trigger,
+  .option {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .arrow {
+    transition: none;
   }
 }

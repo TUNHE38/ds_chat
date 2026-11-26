@@ -1,21 +1,7 @@
 import clsx from 'clsx'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import {
-  IconPaperclipOutline16,
-  IconGlobeLanguageOutline14,
-  IconSettingsOutline16,
-  IconSendOutline16,
-  IconStopFill16,
-} from '../base/icons.js'
-import {
-  setInstruction,
-  setInstructionPresets,
-  setModel,
-  setTranslationLanguages,
-  useSettings,
-  type TranslationLanguage,
-} from '../../services/settings.js'
-import type { ChatModel } from '../../services/api/types.js'
+import { memo, useCallback, useEffect, useRef } from 'react'
+import { IconPaperclipOutline16, IconSendOutline16, IconStopFill16 } from '../base/icons.js'
+import { useSettings } from '../../services/settings.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
 import {
@@ -30,8 +16,8 @@ import {
 } from '../../services/chat/drafts.js'
 import { stopReadAloud } from '../../services/speech/readAloud.js'
 import { IconButton } from '../base/IconButton.js'
-import { Select } from '../base/Select.js'
-import { ensureApiKey } from '../settings/settingsDialogState.js'
+import { LanguagePair, TranslationOptions } from './TranslationControls.js'
+import { ensureApiKey, useSettingsDialog } from '../settings/settingsDialogState.js'
 import { DragMask, useFileDrop } from './DragMask.js'
 import { showToast } from '../base/toastState.js'
 import { ACCEPT, useUploads } from '../../services/attachments.js'
@@ -42,7 +28,7 @@ import { Spectrum } from './Spectrum.js'
 import { useTranslate } from '../../i18n/index.js'
 import styles from './ChatInput.module.css'
 
-/** 输入框：自适应高度的文本框 + 文件 + 深度思考与智能搜索开关 + 语音输入 + 发送 / 停止 */
+/** 新翻译和会话共用的输入区。 */
 export const ChatInput = memo(function ChatInput({ sessionId }: { sessionId: string | null }) {
   // 切换目标时释放录音、转写和 DOM 状态；文字与附件由草稿服务保留。
   return <Input key={sessionId === null ? 'new' : `session:${sessionId}`} sessionId={sessionId} />
@@ -59,14 +45,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   )
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
-  const model = useSettings((state) => state.model)
-  const sourceLanguage = useSettings((state) => state.sourceLanguage)
-  const targetLanguage = useSettings((state) => state.targetLanguage)
-  const instruction = useSettings((state) => state.instruction)
-  const instructionPresets = useSettings((state) => state.instructionPresets)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [editingPreset, setEditingPreset] = useState<string | null>(null)
-  const [presetDraft, setPresetDraft] = useState({ instruction: '', description: '' })
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -157,15 +135,17 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         }
       }}
     >
+      <LanguagePair disabled={importingHistory} />
       <DraftAttachments items={attachments} onRetry={retryFile} onRemove={removeFile} />
       <div className={styles.textareaWrapper}>
         <textarea
           ref={textareaRef}
           className={clsx(styles.textarea, recording && isMobile && styles.textareaHidden)}
+          aria-label={t('chatInputPlaceholderChat')}
           placeholder={t('chatInputPlaceholderChat')}
           rows={2}
           // 移动端不自动聚焦，避免一打开就弹出键盘
-          autoFocus={!isMobile}
+          autoFocus={!isMobile && !useSettingsDialog.getState().open}
           disabled={importingHistory}
           value={text}
           onChange={(event) => setText(event.target.value)}
@@ -196,130 +176,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         </div>
       </div>
       <div className={styles.functionRow}>
-        {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
-        <div className={styles.toggles}>
-          <div className={styles.languageGroup}>
-            <IconGlobeLanguageOutline14 />
-            <Select
-              value={sourceLanguage}
-              ariaLabel={t('sourceLanguage')}
-              className={styles.languageSelect}
-              options={[
-                { value: 'auto', label: t('languageAuto') },
-                { value: 'zh', label: t('languageChinese') },
-                { value: 'en', label: t('languageEnglish') },
-                { value: 'ja', label: t('languageJapanese') },
-                { value: 'ko', label: t('languageKorean') },
-                { value: 'fr', label: 'Français' },
-                { value: 'de', label: 'Deutsch' },
-                { value: 'es', label: 'Español' },
-                { value: 'ru', label: 'Русский' },
-              ]}
-              onChange={(value) => setTranslationLanguages(value as TranslationLanguage, targetLanguage)}
-            />
-            <span className={styles.languageArrow}>→</span>
-            <Select
-              value={targetLanguage}
-              ariaLabel={t('targetLanguage')}
-              className={styles.languageSelect}
-              options={[
-                { value: 'zh', label: t('languageChinese') },
-                { value: 'en', label: t('languageEnglish') },
-                { value: 'ja', label: t('languageJapanese') },
-                { value: 'ko', label: t('languageKorean') },
-                { value: 'fr', label: 'Français' },
-                { value: 'de', label: 'Deutsch' },
-                { value: 'es', label: 'Español' },
-                { value: 'ru', label: 'Русский' },
-              ]}
-              onChange={(value) => setTranslationLanguages(sourceLanguage, value as TranslationLanguage)}
-            />
-          </div>
-          <Select
-            value={model}
-            ariaLabel={t('modelSwitch')}
-            className={styles.modelIconSelect}
-            icon={<IconSettingsOutline16 />}
-            disabled={streaming || importingHistory}
-            options={[
-              { value: 'Index-Translate-35B-A3B', label: 'Index-Translate-35B-A3B' },
-              { value: 'Index-Translate-9B', label: 'Index-Translate-9B' },
-              { value: 'Index-Homura-9B', label: 'Index-Homura-9B' },
-              { value: 'Index-Nailong-9B', label: 'Index-Nailong-9B' },
-            ]}
-            onChange={(value) => setModel(value as ChatModel)}
-          />
-          <IconButton
-            size="m"
-            icon={<IconSettingsOutline16 />}
-            tooltip={t('translationInstruction')}
-            disabled={streaming || importingHistory}
-            onClick={() => setAdvancedOpen((open) => !open)}
-            aria-expanded={advancedOpen}
-          />
-          {advancedOpen ? (
-            <div className={styles.advancedOptions}>
-              <Select
-                value={instruction}
-                ariaLabel={t('translationInstruction')}
-                className={styles.instructionSelect}
-                disabled={streaming || importingHistory}
-                options={instructionPresets.map((preset) => ({
-                  value: preset.instruction,
-                  label: preset.instruction,
-                  description: preset.description,
-                }))}
-                onChange={setInstruction}
-              />
-              <button type="button" onClick={() => {
-                const preset = instructionPresets.find((item) => item.instruction === instruction)
-                if (preset) {
-                  setEditingPreset(preset.id)
-                  setPresetDraft({ instruction: preset.instruction, description: preset.description })
-                }
-              }}>编辑预设</button>
-              {editingPreset ? (
-                <div className={styles.presetEditor}>
-                  <input value={presetDraft.instruction} onChange={(event) => setPresetDraft((draft) => ({ ...draft, instruction: event.target.value }))} />
-                  <input value={presetDraft.description} placeholder="简短介绍" onChange={(event) => setPresetDraft((draft) => ({ ...draft, description: event.target.value }))} />
-                  <button type="button" onClick={() => {
-                    const updated = instructionPresets.map((item) => item.id === editingPreset ? { ...item, ...presetDraft } : item)
-                    setInstructionPresets(updated)
-                    setInstruction(presetDraft.instruction)
-                    setEditingPreset(null)
-                  }}>保存</button>
-                </div>
-              ) : null}
-              <Select
-                value={model}
-                ariaLabel={t('modelSwitch')}
-                className={styles.modelSelect}
-                disabled={streaming || importingHistory}
-                options={[
-                  { value: 'Index-Translate-35B-A3B', label: 'Index-Translate-35B-A3B' },
-                  { value: 'Index-Translate-9B', label: 'Index-Translate-9B' },
-                  { value: 'Index-Homura-9B', label: 'Index-Homura-9B' },
-                  { value: 'Index-Nailong-9B', label: 'Index-Nailong-9B' },
-                ]}
-                onChange={(value) => setModel(value as ChatModel)}
-              />
-            </div>
-          ) : null}
-        </div>
-        <div className={styles.right}>
-          <VoiceButton
-            status={voice.status}
-            disabled={!voice.available}
-            seconds={voice.seconds}
-            onClick={() => {
-              if (
-                voice.status !== 'idle' ||
-                (!useChatStore.getState().importingHistory && ensureApiKey())
-              ) {
-                void voice.toggle()
-              }
-            }}
-          />
+        <div className={styles.inputTools}>
           <IconButton
             size="m"
             tone="primary"
@@ -339,31 +196,47 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               event.target.value = ''
             }}
           />
-          {streaming && sessionId ? (
-            <button
-              type="button"
-              className={styles.sendButton}
-              aria-label={t('chatInputStopButtonTooltip')}
-              onClick={() => {
-                stopReadAloud()
-                stopReply(sessionId)
-              }}
-            >
-              <IconStopFill16 />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={clsx(styles.sendButton, !canSend && styles.disabled)}
-              aria-label={t('send')}
-              aria-disabled={!canSend}
-              onClick={send}
-            >
-              <IconSendOutline16 />
-            </button>
-          )}
+          <VoiceButton
+            status={voice.status}
+            disabled={!voice.available}
+            seconds={voice.seconds}
+            onClick={() => {
+              if (
+                voice.status !== 'idle' ||
+                (!useChatStore.getState().importingHistory && ensureApiKey())
+              ) {
+                void voice.toggle()
+              }
+            }}
+          />
         </div>
+        {streaming && sessionId ? (
+          <button
+            type="button"
+            className={styles.sendButton}
+            aria-label={t('chatInputStopButtonTooltip')}
+            onClick={() => {
+              stopReadAloud()
+              stopReply(sessionId)
+            }}
+          >
+            {t('chatInputStopButtonTooltip')}
+            <IconStopFill16 />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={clsx(styles.sendButton, !canSend && styles.disabled)}
+            aria-label={t('translateText')}
+            aria-disabled={!canSend}
+            onClick={send}
+          >
+            {t('translateText')}
+            <IconSendOutline16 />
+          </button>
+        )}
       </div>
+      <TranslationOptions disabled={streaming || importingHistory} />
       {dragging ? <DragMask /> : null}
     </div>
   )

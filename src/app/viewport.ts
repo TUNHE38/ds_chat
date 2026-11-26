@@ -52,11 +52,12 @@ export const useMobileViewport = (enabled: boolean) => {
       return
     }
     const viewport = window.visualViewport
+    const viewportStyle = document.documentElement.style
     const inputSelector = 'textarea, input:not([type="file"])'
     let animationFrame = 0
     const reset = () => {
-      frame.style.removeProperty('--app-viewport-height')
-      frame.style.removeProperty('--app-viewport-top')
+      viewportStyle.removeProperty('--app-viewport-height')
+      viewportStyle.removeProperty('--app-viewport-top')
     }
     const update = () => {
       // 双指缩放由浏览器处理，保持当前布局尺寸。
@@ -68,11 +69,11 @@ export const useMobileViewport = (enabled: boolean) => {
         reset()
         return
       }
-      frame.style.setProperty(
+      viewportStyle.setProperty(
         '--app-viewport-height',
         `${viewport?.height ?? window.innerHeight}px`
       )
-      frame.style.setProperty('--app-viewport-top', `${viewport?.offsetTop ?? 0}px`)
+      viewportStyle.setProperty('--app-viewport-top', `${viewport?.offsetTop ?? 0}px`)
     }
     const scheduleFrame = () => {
       cancelAnimationFrame(animationFrame)

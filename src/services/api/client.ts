@@ -7,6 +7,7 @@ import type {
   CreateMessageRequest,
   FileObject,
   FilePurpose,
+  MessageParam,
   MessageStreamEvent,
   OpenAIChatRequest,
   OpenAIChatMessage,
@@ -150,9 +151,9 @@ export async function* streamOpenAIChat(
   }
 }
 
-/** Responses API 的非流式兼容请求，供调用方或集成测试使用。 */
+/** 将本轮附件转为 Chat Completions 的 image_url 内容块。 */
 const openAIContent = (
-  content: string | Array<{ type: string; text?: string; source?: { file_id?: string } }>,
+  content: Extract<MessageParam, { role: 'user' }>['content'],
   imageDataUrls: Record<string, string> = {}
 ): OpenAIChatMessage['content'] => {
   if (typeof content === 'string') {
@@ -162,8 +163,8 @@ const openAIContent = (
   for (const part of content) {
     if (part.type === 'text' && part.text) {
       parts.push({ type: 'text', text: part.text })
-    } else if (part.type === 'image' && part.source?.file_id) {
-      const url = imageDataUrls[part.source.file_id]
+    } else if (part.type === 'image') {
+      const url = part.data_url ?? imageDataUrls[part.source.file_id]
       if (url) {
         parts.push({ type: 'image_url', image_url: { url } })
       }
@@ -180,10 +181,10 @@ export async function* streamOpenAIMessage(
 ): AsyncGenerator<MessageStreamEvent> {
   // Index-Translate 接口要求将翻译指令和原文合并到唯一的 user 消息中，
   // 不发送 system、target、source、instruction 或内部 reminder 字段。
-  const targetLanguageNames: Record<string, string> = {
+  const languageNames: Record<string, string> = {
     auto: '目标语言',
     zh: '中文',
-    en: '英语',
+    en: '英文',
     ja: '日语',
     ko: '韩语',
     fr: '法语',
@@ -196,24 +197,25 @@ export async function* streamOpenAIMessage(
     th: '泰语',
     ar: '阿拉伯语',
   }
-  const targetLanguage = targetLanguageNames[body.target ?? ''] ?? body.target ?? '目标语言'
-  const instruction = body.instruction?.trim() || '直接输出翻译结果，不要进行任何解释'
+  const targetLanguage = languageNames[body.target ?? ''] ?? body.target ?? '目标语言'
+  const sourceLanguage =
+    body.source && body.source !== 'auto' ? languageNames[body.source] : undefined
   const sourceMessage = [...body.messages].reverse().find((message) => message.role === 'user')
-  const sourceContent = sourceMessage
-    ? typeof sourceMessage.content === 'string'
-      ? sourceMessage.content
-      : openAIContent(sourceMessage.content, body.imageDataUrls)
-    : ''
+  const sourceContent = openAIContent(sourceMessage?.content ?? '', body.imageDataUrls)
+  const hasImage =
+    Array.isArray(sourceContent) && sourceContent.some((part) => part.type === 'image_url')
+  const instruction = body.instruction?.trim() || '直接输出翻译结果，不要进行任何解释'
+  // 图片使用语言选择器指定的方向，避免文本预设中写死的语言覆盖目标语言。
+  const prompt = hasImage
+    ? `请将图片中的${sourceLanguage ?? '文字'}翻译为${targetLanguage}。`
+    : `请将以下${sourceLanguage ?? ''}文本翻译为${targetLanguage}。${instruction}\n\n`
   const messages: OpenAIChatRequest['messages'] = [
     {
       role: 'user',
       content:
         typeof sourceContent === 'string'
-          ? `请将以下文本翻译为${targetLanguage}。${instruction}\n\n${sourceContent}`
-          : [
-              { type: 'text', text: `请将以下文本翻译为${targetLanguage}。${instruction}\n\n` },
-              ...sourceContent,
-            ],
+          ? prompt + sourceContent
+          : [{ type: 'text', text: prompt }, ...sourceContent],
     },
   ]
   yield {
@@ -221,16 +223,7 @@ export async function* streamOpenAIMessage(
     message: { id: `openai-${Date.now()}`, model: body.model },
   }
   yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
-  for await (const chunk of streamOpenAIChat(
-    apiKey,
-    {
-      model: body.model,
-      messages,
-      max_tokens: body.imageDataUrls && Object.keys(body.imageDataUrls).length > 0 ? 1024 : undefined,
-      temperature: body.imageDataUrls && Object.keys(body.imageDataUrls).length > 0 ? 0 : undefined,
-    },
-    signal
-  )) {
+  for await (const chunk of streamOpenAIChat(apiKey, { model: body.model, messages }, signal)) {
     const delta = chunk.choices?.[0]?.delta
     const text = delta?.content ?? ''
     if (text) {
@@ -319,10 +312,7 @@ export async function* streamMessage(
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify((({ imageDataUrls: _imageDataUrls, ...wireBody }) => ({
-      ...wireBody,
-      stream: true,
-    }))(body)),
+    body: JSON.stringify({ ...body, imageDataUrls: undefined, stream: true }),
     signal,
   })
   const contentType = response.headers.get('Content-Type') ?? ''

@@ -15,11 +15,13 @@ export type ChatModel =
 
 /** Models offered by the Index-Translate service. */
 export const INDEX_MODELS = [
+  'Index-Translate-35B-A3B',
   'Index-Translate-9B',
   'Index-Homura-9B',
   'Index-Nailong-9B',
-  'Index-Translate-35B-A3B',
 ] as const satisfies readonly ChatModel[]
+
+export type IndexModel = (typeof INDEX_MODELS)[number]
 
 // ---------- 响应：内容块 ----------
 
@@ -220,7 +222,12 @@ export type OpenAIChatChunk = {
 }
 
 export type OpenAIResponseRequest = { model: ChatModel; input: string; stream?: boolean }
-export type OpenAIResponse = { id?: string; output_text?: string; output?: unknown[]; error?: { message: string } }
+export type OpenAIResponse = {
+  id?: string
+  output_text?: string
+  output?: unknown[]
+  error?: { message: string }
+}
 
 export type CreateMessageRequest = {
   model: ChatModel
